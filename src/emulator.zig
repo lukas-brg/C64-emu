@@ -17,18 +17,6 @@ pub const BORDER_SIZE_X = 14;
 pub const BORDER_SIZE_Y = 12;
 
 
-const BG_Color = struct {
-    pub const r: c_int = 72;
-    pub const g: c_int = 58;
-    pub const b: c_int = 170;
-};
-
-
-pub const TextColor = struct {
-    pub const r: u8 = 134;
-    pub const g: u8 = 122;
-    pub const b: u8 = 222;
-};
 
 const SCREEN_WIDTH = 320;
 const SCREEN_HEIGHT = 200;
@@ -106,15 +94,48 @@ pub const Emulator = struct {
             frame_buffer[i*3+2] = BG_Color.b;
         }
     }
-    
+    const BG_Color = struct {
+    pub const r: c_int = 72;
+    pub const g: c_int = 58;
+    pub const b: c_int = 170;
+};
 
+
+pub const TextColor = struct {
+    pub const r: u8 = 134;
+    pub const g: u8 = 122;
+    pub const b: u8 = 222;
+};
+
+
+    const c64_palette = [_]sdl.SDL_Color{
+        .{.r=72, .g=56, .b=170}, // bg color
+        .{.r=134, .g=122, .b=222}, // text color
+        .{.r=255, .g=255, .b=255},
+        .{.r=255, .g=255, .b=255},
+        
+        .{.r=255, .g=255, .b=255},
+        .{.r=255, .g=255, .b=255},
+        .{.r=255, .g=255, .b=255},
+        .{.r=255, .g=255, .b=255},
+        
+        .{.r=255, .g=255, .b=255},
+        .{.r=255, .g=255, .b=255},
+        .{.r=255, .g=255, .b=255},
+        .{.r=255, .g=255, .b=255},
+        
+        .{.r=255, .g=255, .b=255},
+        .{.r=255, .g=255, .b=255},
+        .{.r=255, .g=255, .b=255},
+        .{.r=255, .g=255, .b=255},
+    };
  
 
     pub fn run(self: *Emulator, limit_cycles: ?usize) !void {
         self.cpu.reset();
         var count: usize = 0;
         
-        const pitch: c_int = SCREEN_WIDTH * 3;
+        //const pitch: c_int = SCREEN_WIDTH * 3;
         if (sdl.SDL_Init(sdl.SDL_INIT_VIDEO) != 0) {
             sdl.SDL_Log("Unable to initialize SDL: %s", sdl.SDL_GetError());
             return error.SDLInitializationFailed;
@@ -144,14 +165,30 @@ pub const Emulator = struct {
 
         _ = sdl.SDL_RenderClear(renderer);
         _ = sdl.SDL_RenderSetScale(renderer, self.config.scaling_factor, self.config.scaling_factor);
-        const texture = sdl.SDL_CreateTexture(renderer, sdl.SDL_PIXELFORMAT_RGB24, sdl.SDL_TEXTUREACCESS_STATIC, 320, 200) orelse {
-            sdl.SDL_Log("Unable to create texture: %s", sdl.SDL_GetError());
+        
+        //sdl.SDL_SetPaletteColors(screen.format.palette, c64_palette, 0, 16);
+      
+        
+        // const texture = sdl.SDL_CreateTexture(renderer, sdl.SDL_PIXELFORMAT_RGB24, sdl.SDL_TEXTUREACCESS_STREAMING, 320, 200) orelse {
+        //     sdl.SDL_Log("Unable to create texture: %s", sdl.SDL_GetError());
+        //     return error.SDLInitializationFailed;
+        // };
+        // defer sdl.SDL_DestroyTexture(texture);
+
+        const surface = sdl.SDL_CreateRGBSurface(0, 320, 200, 8, 0, 0, 0, 0) orelse {
+            sdl.SDL_Log("Unable to create surface: %s", sdl.SDL_GetError());
             return error.SDLInitializationFailed;
         };
-        defer sdl.SDL_DestroyTexture(texture);
+        defer sdl.SDL_FreeSurface(surface);
+        
 
+        // Set palette for the surface
+        
+        
+        _ = sdl.SDL_SetPaletteColors(surface.*.format.*.palette, &c64_palette, 0, 16);
 
-        var frame_buffer: [3*SCREEN_HEIGHT*SCREEN_WIDTH]u8 = undefined;
+        //var frame_buffer: [3*SCREEN_HEIGHT*SCREEN_WIDTH]u8 = undefined;
+        //clear_screen_text_area(&frame_buffer);
 
         self.clear_screen_mem();
         var quit = false;
@@ -173,16 +210,20 @@ pub const Emulator = struct {
             
             self.cpu.clock_tick();
             
-            clear_screen_text_area(&frame_buffer);
-            self.update_frame(&frame_buffer);
+        //const frame_buffer: *[SCREEN_HEIGHT*SCREEN_WIDTH/2]u8 = @ptrCast(surface.*.pixels.?);
+           const result: [] u8 = @as([*]u8, @ptrCast(surface.*.pixels.?))[0..SCREEN_HEIGHT*SCREEN_WIDTH];
+           self.update_frame(result);
             if(limit_cycles) |max_cycles| {
                 if(count >= max_cycles) {
-                    break;
+                    break;  
                 }
             }
             count += 1;
-             _ = sdl.SDL_UpdateTexture(texture, null, @ptrCast(&frame_buffer), pitch);
+            // _ = sdl.SDL_UpdateTexture(texture, null, @ptrCast(&frame_buffer), pitch);
+            const texture = sdl.SDL_CreateTextureFromSurface(renderer, surface);
+            
             _ = sdl.SDL_RenderCopy(renderer, texture, null, &sdl.SDL_Rect{.w = SCREEN_WIDTH, .h=SCREEN_HEIGHT, .x = BORDER_SIZE_X, .y = BORDER_SIZE_Y});
+            
             sdl.SDL_RenderPresent(renderer);
         }
       
@@ -216,12 +257,11 @@ pub const Emulator = struct {
                     const char_pixel_x = char_x + char_col_idx;
                     const char_pixel_y = char_y + char_row_idx;
 
-                    const texture_index: usize =  (char_pixel_y * SCREEN_WIDTH + char_pixel_x) * 3;
+                    const texture_index: usize =  (char_pixel_y * SCREEN_WIDTH + char_pixel_x);
                     
                     if (pixel == 1) {
-                        frame_buffer[texture_index] = TextColor.r;
-                        frame_buffer[texture_index+1] = TextColor.g; 
-                        frame_buffer[texture_index+2] = TextColor.b;
+                        frame_buffer[texture_index] = 1;
+            
                     }
                 }
             }
